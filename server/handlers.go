@@ -250,6 +250,22 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		switch conn := conn.Connector.(type) {
+		case connector.CASConnector:
+			cookie := http.Cookie{
+				Name:     "authReq",
+				Value:    authReq.ID,
+				HttpOnly: true,
+				Path:     "/",
+				MaxAge:   300,
+			}
+			http.SetCookie(w, &cookie)
+			callbackURL, err := conn.LoginURL()
+			if err != nil {
+				s.logger.Errorf("Connector %q returned error when creating callback: %v", connID, err)
+				s.renderError(r, w, http.StatusInternalServerError, "Login error.")
+				return
+			}
+			http.Redirect(w, r, callbackURL, http.StatusFound)
 		case connector.CallbackConnector:
 			// Use the auth request ID as the "state" token.
 			//
@@ -387,20 +403,29 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request) {
 	var authID string
-	switch r.Method {
-	case http.MethodGet: // OAuth2 callback
-		if authID = r.URL.Query().Get("state"); authID == "" {
-			s.renderError(r, w, http.StatusBadRequest, "User session error.")
+	if cookie, _ := r.Cookie("authReq"); cookie != nil {
+		if cookie.Value != "" {
+			authID = cookie.Value
+		}
+		cookie.MaxAge = -1
+		http.SetCookie(w, cookie)
+	} else {
+		switch r.Method {
+		case http.MethodGet: // OAuth2 callback
+			if authID = r.URL.Query().Get("state"); authID == "" {
+				s.renderError(r, w, http.StatusBadRequest, "User session error.")
+				return
+			}
+		case http.MethodPost: // SAML POST binding
+			if authID = r.PostFormValue("RelayState"); authID == "" {
+				s.renderError(r, w, http.StatusBadRequest, "User session error.")
+				return
+			}
+		default:
+			s.renderError(r, w, http.StatusBadRequest, "Method not supported")
 			return
 		}
-	case http.MethodPost: // SAML POST binding
-		if authID = r.PostFormValue("RelayState"); authID == "" {
-			s.renderError(r, w, http.StatusBadRequest, "User session error.")
-			return
-		}
-	default:
-		s.renderError(r, w, http.StatusBadRequest, "Method not supported")
-		return
+
 	}
 
 	authReq, err := s.storage.GetAuthRequest(authID)
@@ -435,6 +460,8 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 
 	var identity connector.Identity
 	switch conn := conn.Connector.(type) {
+	case connector.CASConnector:
+		identity, err = conn.HandleCallback(r)
 	case connector.CallbackConnector:
 		if r.Method != http.MethodGet {
 			s.logger.Errorf("SAML request mapped to OAuth2 connector")
@@ -841,8 +868,8 @@ func (s *Server) handleAuthCode(w http.ResponseWriter, r *http.Request, client s
 
 	authCode, err := s.storage.GetAuthCode(code)
 	if err != nil || s.now().After(authCode.Expiry) || authCode.ClientID != client.ID {
+		s.logger.Errorf("failed to get auth code: %v, code expired: %v,code invalid: %v", err, s.now().After(authCode.Expiry), authCode.ClientID != client.ID)
 		if err != storage.ErrNotFound {
-			s.logger.Errorf("failed to get auth code: %v", err)
 			s.tokenErrHelper(w, errServerError, "", http.StatusInternalServerError)
 		} else {
 			s.tokenErrHelper(w, errInvalidGrant, "Invalid or expired code parameter.", http.StatusBadRequest)

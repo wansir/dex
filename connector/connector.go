@@ -69,6 +69,11 @@ type CallbackConnector interface {
 	HandleCallback(s Scopes, r *http.Request) (identity Identity, err error)
 }
 
+type CASConnector interface {
+	LoginURL() (string, error)
+	HandleCallback(r *http.Request) (identity Identity, err error)
+}
+
 // SAMLConnector represents SAML connectors which implement the HTTP POST binding.
 //  RelayState is handled by the server.
 //

@@ -1,6 +1,6 @@
 module github.com/dexidp/dex
 
-go 1.19
+go 1.18
 
 require (
 	entgo.io/ent v0.11.3
@@ -37,6 +37,7 @@ require (
 	google.golang.org/api v0.101.0
 	google.golang.org/grpc v1.50.1
 	google.golang.org/protobuf v1.28.1
+	gopkg.in/cas.v2 v2.2.2
 	gopkg.in/square/go-jose.v2 v2.6.0
 )
 
@@ -56,6 +57,7 @@ require (
 	github.com/go-asn1-ber/asn1-ber v1.5.4 // indirect
 	github.com/go-openapi/inflect v0.19.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
