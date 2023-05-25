@@ -31,6 +31,7 @@ func (c *Config) Open(id string, logger log.Logger) (connector.Connector, error)
 	}
 	cas := casConnector{
 		Config: *c,
+		logger: logger,
 	}
 
 	cas.client = gocas.NewRestClient(&gocas.RestOptions{
@@ -53,6 +54,7 @@ var (
 type casConnector struct {
 	Config
 	client *gocas.RestClient
+	logger log.Logger
 }
 
 func (c *casConnector) LoginURL() (string, error) {
@@ -84,5 +86,8 @@ func (c *casConnector) HandleCallback(r *http.Request) (identity connector.Ident
 		Email:             resp.Attributes.Get("email"),
 		EmailVerified:     true,
 	}
+
+	c.logger.Debugf("cas identity: %+v", identity)
+
 	return identity, nil
 }
