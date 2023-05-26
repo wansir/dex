@@ -36,6 +36,7 @@ func (c *Config) Open(id string, logger log.Logger) (connector.Connector, error)
 
 	cas.client = gocas.NewRestClient(&gocas.RestOptions{
 		CasURL:     casURL,
+		CasVersion: gocas.CASVERSION3,
 		ServiceURL: redirectURL,
 		Client: &http.Client{
 			Transport: &http.Transport{
