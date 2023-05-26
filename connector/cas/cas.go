@@ -79,15 +79,19 @@ func (c *casConnector) HandleCallback(r *http.Request) (identity connector.Ident
 		uid = user.Mobile
 	}
 
+	email := resp.Attributes.Get("username")
+	if email == "" {
+		email = resp.Attributes.Get("fourUserName")
+	}
 	identity = connector.Identity{
 		UserID:            uid,
 		Username:          resp.User,
 		PreferredUsername: resp.User,
-		Email:             resp.Attributes.Get("email"),
+		Email:             email,
 		EmailVerified:     true,
 	}
 
-	c.logger.Debugf("cas identity: %+v", identity)
+	c.logger.Debugf("cas identity response: %+v", resp)
 
 	return identity, nil
 }
