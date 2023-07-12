@@ -251,6 +251,19 @@ func (s *Server) handleConnectorLogin(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		switch conn := conn.Connector.(type) {
 		case connector.CASConnector:
+			var ticket string
+			if cookie, _ := r.Cookie("ticket"); cookie != nil {
+				if cookie.Value != "" {
+					ticket = cookie.Value
+				}
+				cookie.MaxAge = -1
+				http.SetCookie(w, cookie)
+			}
+			if ticket != "" {
+				s.handleCasCallback(w, r, authReq, ticket)
+				return
+			}
+
 			cookie := http.Cookie{
 				Name:     "authReq",
 				Value:    authReq.ID,
@@ -402,6 +415,119 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request) {
+	connID, _ := url.PathUnescape(mux.Vars(r)["connector"])
+	clientID, _ := url.PathUnescape(mux.Vars(r)["client"])
+
+	if connID != "" && clientID != "" {
+		client, err := s.storage.GetClient(clientID)
+		if err != nil {
+			s.logger.Errorf("Invalid 'client' parameter provided: %v", err)
+			s.renderError(r, w, http.StatusBadRequest, "Requested resource does not exist.")
+			return
+		}
+		var redirectURL string
+		if len(client.RedirectURIs) > 0 {
+			redirectURL = client.RedirectURIs[0]
+		} else {
+			s.logger.Errorf("Invalid 'redirectURL' provided: %v", err)
+			s.renderError(r, w, http.StatusBadRequest, "redirectURL does not exist.")
+			return
+		}
+		harborURL, err := url.Parse(redirectURL)
+		if err != nil {
+			s.logger.Errorf("Invalid 'redirectURL' provided: %v", err)
+			s.renderError(r, w, http.StatusBadRequest, "redirectURL parse failed.")
+			return
+		}
+		ticket := r.URL.Query().Get("ticket")
+		cookie := http.Cookie{
+			Name:     "ticket",
+			Value:    ticket,
+			HttpOnly: true,
+			Path:     "/",
+			MaxAge:   300,
+		}
+		http.SetCookie(w, &cookie)
+		http.Redirect(w, r, fmt.Sprintf("%s://%s/c/oidc/login", harborURL.Scheme, harborURL.Host), http.StatusFound)
+
+		s.logger.Infof("handleConnectorCallback: %v, ticket: %s", fmt.Sprintf("%s://%s/c/oidc/login", harborURL.Scheme, harborURL.Host), ticket)
+		return
+	}
+
+	//else if connID != "" && clientID != "" {
+	//	client, err := s.storage.GetClient(clientID)
+	//	if err != nil {
+	//		s.logger.Errorf("Invalid 'client' parameter provided: %v", err)
+	//		s.renderError(r, w, http.StatusBadRequest, "Requested resource does not exist.")
+	//		return
+	//	}
+	//
+	//	var redirectURL string
+	//	if len(client.RedirectURIs) > 0 {
+	//		redirectURL = client.RedirectURIs[0]
+	//	} else {
+	//		s.logger.Errorf("Invalid 'redirectURL' provided: %v", err)
+	//		s.renderError(r, w, http.StatusBadRequest, "redirectURL does not exist.")
+	//		return
+	//	}
+	//
+	//	var harborRedirectURL *url.URL
+	//	httpClient := &http.Client{
+	//		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	//			harborRedirectURL = req.URL
+	//			return http.ErrUseLastResponse
+	//		},
+	//		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	//	}
+	//	harborURL, err := url.Parse(redirectURL)
+	//	if err != nil {
+	//		s.logger.Errorf("Invalid 'redirectURL' provided: %v", err)
+	//		s.renderError(r, w, http.StatusBadRequest, "redirectURL parse failed.")
+	//		return
+	//	}
+	//
+	//	resp, err := httpClient.Get(fmt.Sprintf("%s://%s/c/oidc/login", harborURL.Scheme, harborURL.Host))
+	//	if err != nil {
+	//		s.logger.Errorf("failed to get state", err)
+	//		s.renderError(r, w, http.StatusInternalServerError, "failed to get state")
+	//		return
+	//	}
+	//
+	//	if resp.StatusCode != http.StatusFound {
+	//		s.logger.Errorf("failed to get state, status code mismatch", err)
+	//		s.renderError(r, w, http.StatusInternalServerError, "failed to get state")
+	//		return
+	//	}
+	//
+	//	if harborRedirectURL == nil {
+	//		s.logger.Errorf("failed to get state, redirect url is nil", err)
+	//		s.renderError(r, w, http.StatusInternalServerError, "failed to get state")
+	//		return
+	//	}
+	//
+	//	authReq := storage.AuthRequest{
+	//		ID:                  storage.NewID(),
+	//		ClientID:            clientID,
+	//		ResponseTypes:       []string{"code"},
+	//		Scopes:              []string{"openid", "email"},
+	//		RedirectURI:         redirectURL,
+	//		State:               harborRedirectURL.Query().Get("state"),
+	//		ForceApprovalPrompt: false,
+	//		Expiry:              s.now().Add(s.authRequestsValidFor),
+	//		Claims:              storage.Claims{},
+	//		ConnectorID:         connID,
+	//	}
+	//
+	//	// Actually create the auth request
+	//	authReq.Expiry = s.now().Add(s.authRequestsValidFor)
+	//	if err := s.storage.CreateAuthRequest(authReq); err != nil {
+	//		s.logger.Errorf("Failed to create authorization request: %v", err)
+	//		s.renderError(r, w, http.StatusInternalServerError, "Failed to connect to the database.")
+	//		return
+	//	}
+	//	authID = authReq.ID
+	//}
+
 	var authID string
 	if cookie, _ := r.Cookie("authReq"); cookie != nil {
 		if cookie.Value != "" {
@@ -425,7 +551,6 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 			s.renderError(r, w, http.StatusBadRequest, "Method not supported")
 			return
 		}
-
 	}
 
 	authReq, err := s.storage.GetAuthRequest(authID)
@@ -440,7 +565,7 @@ func (s *Server) handleConnectorCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	connID, err := url.PathUnescape(mux.Vars(r)["connector"])
+	connID, err = url.PathUnescape(mux.Vars(r)["connector"])
 	if err != nil {
 		s.logger.Errorf("Failed to get connector with id %q : %v", authReq.ConnectorID, err)
 		s.renderError(r, w, http.StatusInternalServerError, "Requested resource does not exist.")

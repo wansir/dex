@@ -377,6 +377,18 @@ func newServer(ctx context.Context, c Config, rotationStrategy rotationStrategy)
 		}
 		s.handleConnectorCallback(w, r)
 	})
+
+	r.HandleFunc(path.Join(issuerURL.Path, "/connector/{connector}/client/{client}/callback"), func(w http.ResponseWriter, r *http.Request) {
+		// Strip the X-Remote-* headers to prevent security issues on
+		// misconfigured authproxy connector setups.
+		for key := range r.Header {
+			if strings.HasPrefix(strings.ToLower(key), "x-remote-") {
+				r.Header.Del(key)
+			}
+		}
+		s.handleConnectorCallback(w, r)
+	})
+
 	// For easier connector-specific web server configuration, e.g. for the
 	// "authproxy" connector.
 	handleFunc("/callback/{connector}", s.handleConnectorCallback)
@@ -635,4 +647,35 @@ func (s *Server) getConnector(id string) (Connector, error) {
 	}
 
 	return conn, nil
+}
+
+func (s *Server) handleCasCallback(w http.ResponseWriter, r *http.Request, authReq *storage.AuthRequest, ticket string) {
+	s.logger.Infof("handleCasCallback: %v", authReq)
+
+	conn, err := s.getConnector(authReq.ConnectorID)
+	if err != nil {
+		s.logger.Errorf("Failed to get connector with id %q : %v", authReq.ConnectorID, err)
+		s.renderError(r, w, http.StatusInternalServerError, "Requested resource does not exist.")
+		return
+	}
+
+	q := r.URL.Query()
+	q.Add("ticket", ticket)
+	r.URL.RawQuery = q.Encode()
+
+	identity, err := (conn.Connector.(connector.CASConnector)).HandleCallback(r)
+	if err != nil {
+		s.logger.Errorf("Failed to authenticate: %v", err)
+		s.renderError(r, w, http.StatusInternalServerError, fmt.Sprintf("Failed to authenticate: %v", err))
+		return
+	}
+
+	redirectURL, err := s.finalizeLogin(identity, *authReq, conn.Connector)
+	if err != nil {
+		s.logger.Errorf("Failed to finalize login: %v", err)
+		s.renderError(r, w, http.StatusInternalServerError, "Login error.")
+		return
+	}
+
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }

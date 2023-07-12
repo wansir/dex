@@ -71,7 +71,7 @@ func (c *casConnector) HandleCallback(r *http.Request) (identity connector.Ident
 	ticket := r.URL.Query().Get("ticket")
 	resp, err := c.client.ValidateServiceTicket(gocas.ServiceTicket(ticket))
 	if err != nil {
-		return identity, fmt.Errorf("cas: failed to validate service ticket : %v", err)
+		return identity, fmt.Errorf("cas: failed to validate service ticket %s: %v", ticket, err)
 	}
 	uid := resp.User
 	var user UserEntry
